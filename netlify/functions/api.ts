@@ -88,28 +88,6 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL || '';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const APP_URL = (process.env.APP_URL || 'http://localhost:8888').replace(/\/+$/, '');
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
-const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET_KEY_CLOUDFLARE || '';
-
-// ---------------------------------------------------------------------------
-// Cloudflare Turnstile server-side verification
-// ---------------------------------------------------------------------------
-async function verifyTurnstileToken(token: string, remoteIp: string): Promise<boolean> {
-  if (!TURNSTILE_SECRET) {
-    console.warn('[Turnstile] TURNSTILE_SECRET_KEY_CLOUDFLARE is not set. Skipping verification.');
-    return true;
-  }
-  try {
-    const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: TURNSTILE_SECRET, response: token, remoteip: remoteIp }),
-    });
-    const data = await resp.json() as { success: boolean };
-    return data.success === true;
-  } catch {
-    return false;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // HMAC stateless session tokens
@@ -412,16 +390,6 @@ export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResp
       recordAbuseRateLimitHit(clientIp);
       return json(400, {
         error: 'Unable to process your submission. Please try again.',
-        errorType: 'verification',
-      });
-    }
-
-    // Cloudflare Turnstile server-side verification
-    const turnstileToken = parseResult.data.turnstileToken ?? '';
-    const turnstileOk = await verifyTurnstileToken(turnstileToken, clientIp);
-    if (!turnstileOk) {
-      return json(400, {
-        error: 'Human verification failed. Please refresh the page and try again.',
         errorType: 'verification',
       });
     }

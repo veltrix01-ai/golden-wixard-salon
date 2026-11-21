@@ -45,7 +45,7 @@ export function validateQuestionSubmission(input: {
   if (!input.humanVerified) {
     return {
       valid: false,
-      error: 'Please complete the human verification challenge before submitting.',
+      error: 'Please tick the "I\'m human" box before submitting.',
     };
   }
 

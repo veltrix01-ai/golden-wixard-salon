@@ -2,8 +2,6 @@ export interface SubmitQuestionPayload {
   question: string;
   asker_name: string | null;
   human_verified: boolean;
-  /** Cloudflare Turnstile one-time token — verified server-side before saving. */
-  turnstileToken: string;
   website: string;
 }
 

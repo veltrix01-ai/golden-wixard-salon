@@ -1,142 +1,76 @@
-/**
- * HumanVerification — Cloudflare Turnstile widget
- *
- * Renders the official Cloudflare Turnstile challenge inside the existing
- * form. When the visitor solves the challenge, Turnstile calls onVerify with
- * a one-time token. That token is sent to the backend which verifies it with
- * Cloudflare's siteverify API before saving the question.
- *
- * The site key (VITE_TURNSTILE_SITE_KEY) is public — it identifies your
- * Cloudflare Turnstile widget and is safe to embed in the browser.
- * The secret key NEVER appears here; it stays in the backend .env file.
- */
-
-import React, { useEffect, useRef } from 'react';
-
-// Cloudflare Turnstile attaches itself to window after the script loads.
-declare global {
-  interface Window {
-    turnstile?: {
-      render: (
-        container: HTMLElement,
-        options: {
-          sitekey: string;
-          theme?: 'light' | 'dark' | 'auto';
-          callback?: (token: string) => void;
-          'expired-callback'?: () => void;
-          'error-callback'?: () => void;
-          size?: 'normal' | 'compact';
-        }
-      ) => string;
-      reset: (widgetId: string) => void;
-      remove: (widgetId: string) => void;
-    };
-  }
-}
+import React, { useId } from 'react';
+import { ShieldCheck, Check } from 'lucide-react';
 
 interface HumanVerificationProps {
-  /** Called with the Turnstile token when the visitor passes the challenge. */
-  onVerify: (token: string) => void;
-  /** Called when the token expires so the form can clear it. */
-  onExpire?: () => void;
-  /** Whether the form is currently submitting (disables interaction). */
+  checked: boolean;
+  onChange: (checked: boolean) => void;
   disabled?: boolean;
   isLight?: boolean;
 }
 
-// The Turnstile script URL — loaded once per page.
-const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
-
 export const HumanVerification: React.FC<HumanVerificationProps> = ({
-  onVerify,
-  onExpire,
+  checked,
+  onChange,
   disabled = false,
   isLight = false,
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const widgetIdRef = useRef<string | null>(null);
-  const mountedRef = useRef(false);
-
-  // Load the Turnstile script once.
-  useEffect(() => {
-    if (document.querySelector(`script[src="${TURNSTILE_SCRIPT_SRC}"]`)) return;
-    const script = document.createElement('script');
-    script.src = `${TURNSTILE_SCRIPT_SRC}?render=explicit`;
-    script.async = true;
-    script.defer = true;
-    document.head.appendChild(script);
-  }, []);
-
-  // Render the widget once the script is ready.
-  useEffect(() => {
-    if (mountedRef.current) return;
-
-    function renderWidget() {
-      if (!containerRef.current || !window.turnstile || !SITE_KEY) return;
-      mountedRef.current = true;
-      widgetIdRef.current = window.turnstile.render(containerRef.current, {
-        sitekey: SITE_KEY,
-        theme: isLight ? 'light' : 'dark',
-        size: 'normal',
-        callback: (token: string) => {
-          onVerify(token);
-        },
-        'expired-callback': () => {
-          if (onExpire) onExpire();
-        },
-        'error-callback': () => {
-          if (onExpire) onExpire(); // treat errors same as expiry — form clears token
-        },
-      });
-    }
-
-    // Turnstile script may already be loaded, or we may need to wait for it.
-    if (window.turnstile) {
-      renderWidget();
-    } else {
-      const checkInterval = setInterval(() => {
-        if (window.turnstile) {
-          clearInterval(checkInterval);
-          renderWidget();
-        }
-      }, 100);
-      return () => clearInterval(checkInterval);
-    }
-  }, [isLight, onVerify, onExpire]);
-
-  // Cleanup on unmount.
-  useEffect(() => {
-    return () => {
-      if (window.turnstile && widgetIdRef.current) {
-        try {
-          window.turnstile.remove(widgetIdRef.current);
-        } catch {
-          // ignore
-        }
-      }
-    };
-  }, []);
-
-  if (!SITE_KEY) {
-    // Site key not configured — show a warning box in development only.
-    return (
-      <div className="p-3 rounded border border-amber-500/50 bg-amber-950/30 text-amber-300 text-xs">
-        ⚠ Turnstile site key not configured. Add <code>VITE_TURNSTILE_SITE_KEY</code> to your <code>.env</code> file.
-      </div>
-    );
-  }
+  const checkboxId = useId();
 
   return (
     <div
-      className={`rounded-sm border transition-all ${
-        isLight
+      className={`p-3.5 rounded-sm border transition-all ${
+        checked
+          ? isLight
+            ? 'bg-[#F9F7F2] border-[#A9823D]'
+            : 'bg-[#141414] border-[#C9A45C]/70'
+          : isLight
           ? 'bg-[#F9F7F2] border-black/10'
           : 'bg-[#141414] border-[#C6A15B]/30'
-      } ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
+      }`}
     >
-      {/* Cloudflare Turnstile mounts its iframe into this div */}
-      <div ref={containerRef} className="flex justify-center py-2" />
+      <label
+        htmlFor={checkboxId}
+        className={`flex items-center justify-between gap-3 min-h-[44px] select-none ${
+          disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <div className="relative flex items-center justify-center w-6 h-6 shrink-0">
+            <input
+              id={checkboxId}
+              type="checkbox"
+              checked={checked}
+              disabled={disabled}
+              onChange={(e) => onChange(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span
+              aria-hidden="true"
+              className={`w-5 h-5 rounded border flex items-center justify-center transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-[#C9A45C] peer-focus-visible:ring-offset-1 ${
+                checked
+                  ? 'bg-[#C9A45C] border-[#C9A45C] text-[#0D0D0D]'
+                  : isLight
+                  ? 'bg-white border-[#D6CEC0] text-transparent'
+                  : 'bg-[#111111] border-white/25 text-transparent'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5 stroke-[3]" />
+            </span>
+          </div>
+
+          <span
+            className={`text-sm font-semibold tracking-wide ${
+              isLight ? 'text-[#24211C]' : 'text-[#F5F1E8]'
+            }`}
+          >
+            I'm human
+          </span>
+        </div>
+
+        <div className="w-8 h-8 rounded-full bg-[#1F1F1F] border border-[#C6A15B]/50 flex items-center justify-center text-[#C6A15B] shrink-0">
+          <ShieldCheck className="w-4 h-4 text-[#C6A15B]" />
+        </div>
+      </label>
     </div>
   );
 };

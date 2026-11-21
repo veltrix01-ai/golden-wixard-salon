@@ -16,11 +16,7 @@ export const AskQuestionForm: React.FC = () => {
 
   const [askerName, setAskerName] = useState('');
   const [questionText, setQuestionText] = useState('');
-  // turnstileToken holds the one-time token Cloudflare sends after the visitor
-  // passes the challenge. It is sent to the backend which verifies it with
-  // Cloudflare's siteverify API. An empty string means the challenge hasn't
-  // been completed yet.
-  const [turnstileToken, setTurnstileToken] = useState('');
+  const [humanVerified, setHumanVerified] = useState(false);
   const [honeypotWebsite, setHoneypotWebsite] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -32,16 +28,11 @@ export const AskQuestionForm: React.FC = () => {
   const isTooShort = charCount > 0 && charCount < QUESTION_MIN_LENGTH;
   const isTooLong = charCount > QUESTION_MAX_LENGTH;
 
-  const handleTurnstileVerify = (token: string) => {
-    setTurnstileToken(token);
-    // If a previous "complete verification" error was showing, clear it now.
-    if (errorMessage && errorMessage.toLowerCase().includes('verif')) {
+  const handleHumanVerificationChange = (checked: boolean) => {
+    setHumanVerified(checked);
+    if (checked && errorMessage) {
       setErrorMessage(null);
     }
-  };
-
-  const handleTurnstileExpire = () => {
-    setTurnstileToken('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -53,27 +44,14 @@ export const AskQuestionForm: React.FC = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    // Frontend validation — question length etc.
     const validation = validateQuestionSubmission({
       askerName,
       questionText,
-      // We pass humanVerified=true when a Turnstile token is present so the
-      // existing validateQuestionSubmission logic stays intact.
-      humanVerified: turnstileToken.length > 0,
+      humanVerified,
     });
 
     if (validation.valid === false) {
-      // Give a Turnstile-specific message when the token is missing.
-      if (!turnstileToken) {
-        setErrorMessage('Please complete the human verification challenge before submitting.');
-      } else {
-        setErrorMessage(validation.error);
-      }
-      return;
-    }
-
-    if (!turnstileToken) {
-      setErrorMessage('Please complete the human verification challenge before submitting.');
+      setErrorMessage(validation.error);
       return;
     }
 
@@ -84,10 +62,7 @@ export const AskQuestionForm: React.FC = () => {
       const result = await submitCustomerQuestion({
         question: validation.question,
         asker_name: validation.askerName,
-        // human_verified kept for schema compatibility
-        human_verified: true,
-        // Turnstile token — backend verifies this with Cloudflare
-        turnstileToken,
+        human_verified: humanVerified,
         website: honeypotWebsite,
       });
 
@@ -96,7 +71,6 @@ export const AskQuestionForm: React.FC = () => {
           result.error ||
             'Unable to save your question right now. Please try again in a moment.'
         );
-        // Don't reset the Turnstile token on failure — user may retry immediately.
         return;
       }
 
@@ -107,9 +81,7 @@ export const AskQuestionForm: React.FC = () => {
       setQuestionText('');
       setAskerName('');
       setHoneypotWebsite('');
-      setTurnstileToken('');
-      // The Turnstile widget resets itself automatically after a successful
-      // form submission because the token is consumed server-side.
+      setHumanVerified(false);
     } catch {
       setErrorMessage(
         'Network error while submitting your question. Please check your connection and try again.'
@@ -245,10 +217,10 @@ export const AskQuestionForm: React.FC = () => {
               />
             </div>
 
-            {/* 3. Cloudflare Turnstile human verification */}
+            {/* 3. Human verification checkbox */}
             <HumanVerification
-              onVerify={handleTurnstileVerify}
-              onExpire={handleTurnstileExpire}
+              checked={humanVerified}
+              onChange={handleHumanVerificationChange}
               disabled={isSubmitting}
               isLight={isLight}
             />

@@ -108,32 +108,6 @@ const ENV_OWNER_PASSWORD = process.env.OWNER_PASSWORD || '';
 const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@goldenwizardsalon.com';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const APP_URL = process.env.APP_URL || 'http://localhost:3000';
-const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET_KEY_CLOUDFLARE || '';
-
-// ---------------------------------------------------------------------------
-// Cloudflare Turnstile server-side verification
-// Validates that the token from the browser widget is genuine.
-// Returns true when verified, false on failure or when secret is not configured.
-// ---------------------------------------------------------------------------
-async function verifyTurnstileToken(token: string, remoteIp: string): Promise<boolean> {
-  if (!TURNSTILE_SECRET) {
-    // Secret not configured — skip verification in development (warn loudly).
-    console.warn('[Turnstile] TURNSTILE_SECRET_KEY_CLOUDFLARE is not set. Skipping Turnstile verification.');
-    return true;
-  }
-  try {
-    const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: TURNSTILE_SECRET, response: token, remoteip: remoteIp }),
-    });
-    const data = await resp.json() as { success: boolean };
-    return data.success === true;
-  } catch (err) {
-    console.error('[Turnstile] Verification request failed:', err);
-    return false;
-  }
-}
 
 const SESSIONS_FILE_PATH = path.resolve(process.cwd(), '.data-sessions.json');
 
@@ -717,17 +691,7 @@ app.post('/api/questions', async (req: Request, res: Response) => {
     });
   }
 
-  // 4. Cloudflare Turnstile server-side verification
-  const turnstileToken = parseResult.data.turnstileToken ?? '';
-  const turnstileOk = await verifyTurnstileToken(turnstileToken, clientIp);
-  if (!turnstileOk) {
-    return res.status(400).json({
-      error: 'Human verification failed. Please refresh the page and try again.',
-      errorType: 'verification',
-    });
-  }
-
-  // 5. Persist new question with status: 'pending'
+  // 4. Persist new question with status: 'pending'
   let newQuestion: QuestionRecord;
   try {
     newQuestion = await createPendingQuestion({
@@ -753,7 +717,7 @@ app.post('/api/questions', async (req: Request, res: Response) => {
   // Record 5/hour quota only once the question has actually persisted
   recordQuestionRateLimitHit(clientIp);
 
-  // 6. Trigger Resend email notification (non-blocking)
+  // 5. Trigger Resend email notification (non-blocking)
   sendOwnerEmailNotification(newQuestion).catch(() => {});
 
   res.status(201).json({

@@ -12,19 +12,11 @@ export const SubmitQuestionSchema = z.object({
     .max(100, { message: 'Name cannot exceed 100 characters.' })
     .optional()
     .nullable(),
-  // human_verified is kept for backward-compatibility with the frontend payload,
-  // but real bot-protection is now handled by Cloudflare Turnstile (turnstileToken).
   human_verified: z
-    .boolean({ message: 'Please complete the human verification.' })
+    .boolean({ message: 'Please tick the "I\'m human" box before submitting.' })
     .refine((val) => val === true, {
-      message: 'Please complete the human verification.',
-    })
-    .optional(),
-  // Cloudflare Turnstile challenge token — verified server-side against the
-  // Turnstile siteverify API before the question is saved.
-  turnstileToken: z
-    .string({ message: 'Human verification token is missing. Please refresh and try again.' })
-    .min(1, { message: 'Human verification token is missing. Please refresh and try again.' }),
+      message: 'Please tick the "I\'m human" box before submitting.',
+    }),
   website: z.string().max(200).optional().nullable(),
 });
 
