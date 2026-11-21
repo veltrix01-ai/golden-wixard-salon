@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: 'Cormorant Garamond', 'Playfair Display', Georgia, serif;
+  --font-display: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
+  --font-sans: 'Montserrat', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  
+  --color-gold-base: #C9A45C;
+  --color-gold-soft: #E3C78D;
+  --color-gold-dark: #A9823D;
+  --color-dark-bg: #0D0D0D;
+  --color-dark-card: #1B1B1B;
+  --color-dark-surface: #151515;
+  --color-ivory: #F5F1E8;
+}
+
+:root {
+  --bg-main: #0D0D0D;
+  --bg-secondary: #151515;
+  --bg-card: #1B1B1B;
+  --bg-surface: #222222;
+  --bg-input: #121212;
+  --gold-primary: #C9A45C;
+  --gold-light: #E3C78D;
+  --gold-dark: #A9823D;
+  --text-primary: #F5F1E8;
+  --text-secondary: #A5A5A5;
+  --text-muted: #7A7A7A;
+  --border-color: rgba(201, 164, 92, 0.25);
+  --border-gold: rgba(201, 164, 92, 0.25);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --shadow-luxury: 0 10px 30px -10px rgba(0, 0, 0, 0.85);
+  color-scheme: dark;
+}
+
+html,
+body {
+  overflow-x: clip;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #0D0D0D;
+  color: #F5F1E8;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-serif-elegant {
+  font-family: var(--font-serif);
+}
+
+.font-display-luxury {
+  font-family: var(--font-display);
+}
+
+/* Custom subtle luxury dark scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0D0D0D;
+}
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C9A45C;
+}
+
+/* Gold gradient text helper */
+.gold-gradient-text {
+  background: linear-gradient(135deg, #F5F1E8 0%, #E3C78D 50%, #C9A45C 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gold-shimmer-border {
+  border-color: rgba(201, 164, 92, 0.25);
+}
+
+.gold-shimmer-border:hover {
+  border-color: #C9A45C;
+}
+
+/* Watermark overlay on certificates */
+.certificate-watermark {
+  background-image: repeating-linear-gradient(
+    -35deg,
+    rgba(201, 164, 92, 0.12),
+    rgba(201, 164, 92, 0.12) 1px,
+    transparent 1px,
+    transparent 60px
+  );
+  pointer-events: none;
+}

@@ -1,0 +1,13 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+.vercel
+
+# Runtime data files — contain owner credentials, session tokens, and customer data.
+# Never commit these; they are generated at runtime on the server.
+.data-*.json
