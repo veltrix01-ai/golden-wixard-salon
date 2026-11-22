@@ -174,15 +174,17 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
     const buildWhatsappShareUrl = (aptId: string) => {
       const message =
-        `*APPOINTMENT ENQUIRY [${aptId}] - GOLDEN WIZARD SALON*\n\n` +
-        `*Salon Branch:* ${activeBranch.name}\n` +
-        `*Client Name:* ${name.trim()}\n` +
-        `*Phone:* ${cleanMobile}\n` +
-        `*Service Requested:* ${service}\n` +
-        `*Preferred Date:* ${date}\n` +
-        `*Preferred Time Slot:* ${time}\n` +
-        (trimmedNotes ? `*Notes/Requests:* ${trimmedNotes}\n` : '') +
-        `\n_Submitted via Golden Wizard website form._`;
+        `🌟 *APPOINTMENT REQUEST — GOLDEN WIZARD PROFESSIONAL SALON*\n\n` +
+        `📋 *Reference:* ${aptId}\n` +
+        `📍 *Branch:* ${activeBranch.name}\n` +
+        `       ${activeBranch.shortArea}\n\n` +
+        `👤 *Customer Name:* ${name.trim()}\n` +
+        `📞 *Phone Number:* +91 ${cleanMobile}\n` +
+        `✂️ *Service Required:* ${service}\n` +
+        `📅 *Preferred Date:* ${date}\n` +
+        `🕐 *Preferred Time:* ${time}\n` +
+        (trimmedNotes ? `📝 *Special Requests:* ${trimmedNotes}\n` : '') +
+        `\nKindly confirm my appointment at your earliest convenience. Thank you! 🙏`;
       return getWhatsAppUrl(message, effectiveWhatsAppNumber);
     };
 
@@ -221,8 +223,18 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
       });
 
       const aptId = serverData.booking?.id || 'GW-APT';
+      const waUrl = buildWhatsappShareUrl(aptId);
       setSubmissionSuccess(aptId);
-      setWhatsappShareUrl(buildWhatsappShareUrl(aptId));
+      setWhatsappShareUrl(waUrl);
+      // Open WhatsApp automatically — no need for the customer to click again
+      window.open(waUrl, '_blank');
+      // Reset form
+      setName('');
+      setPhone('');
+      setService('');
+      setDate('');
+      setTime('');
+      setNotes('');
     } catch (err) {
       console.error('Booking submission error', err);
       salonDb.createAppointment({
@@ -233,8 +245,16 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
         timeSlot: time,
         notes: combinedNotes,
       });
+      const waUrl = buildWhatsappShareUrl('GW-REQ');
       setSubmissionSuccess('GW-REQ');
-      setWhatsappShareUrl(buildWhatsappShareUrl('GW-REQ'));
+      setWhatsappShareUrl(waUrl);
+      window.open(waUrl, '_blank');
+      setName('');
+      setPhone('');
+      setService('');
+      setDate('');
+      setTime('');
+      setNotes('');
     } finally {
       setIsSubmitting(false);
     }
@@ -341,10 +361,10 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                   <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
                   <div>
                     <h4 className="font-semibold text-sm">
-                      Appointment Enquiry Received! (Ref: <span className="font-mono">{submissionSuccess}</span>)
+                      WhatsApp opened with your appointment details!
                     </h4>
                     <p className="text-xs opacity-80 mt-1 leading-relaxed">
-                      Thank you! Your appointment request has been recorded in our system. Our team will verify stylist availability and contact you.
+                      Your booking details have been prepared. Please press <strong>Send</strong> in WhatsApp to deliver your appointment request to Golden Wizard Salon.
                     </p>
                     {whatsappShareUrl && (
                       <div className="mt-3">
@@ -355,7 +375,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                           className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#25D366] text-[#0D0D0D] font-bold text-xs rounded-lg hover:brightness-110 transition-all shadow-sm"
                         >
                           <Send className="w-3.5 h-3.5" />
-                          <span>Fast-Track Confirmation on WhatsApp</span>
+                          <span>Open WhatsApp Again</span>
                         </a>
                       </div>
                     )}
@@ -606,7 +626,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                 className="w-full py-4 px-6 font-bold text-xs sm:text-sm tracking-wider uppercase rounded-lg shadow-xl flex items-center justify-center gap-2.5 transition-all cursor-pointer bg-[#C9A45C] hover:bg-[#D6B979] text-[#0D0D0D]"
               >
                 <Send className="w-4 h-4" />
-                <span>{isSubmitting ? 'Recording Enquiry...' : 'Request Appointment'}</span>
+                <span>{isSubmitting ? 'Opening WhatsApp...' : 'Request Appointment'}</span>
               </button>
               <p className="text-center text-[11px] mt-2.5 text-[#A5A5A5]">
                 Records your booking request and lets you share directly on WhatsApp (<strong>+91 86863 85552</strong>).
