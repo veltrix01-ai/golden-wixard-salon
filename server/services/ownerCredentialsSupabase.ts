@@ -12,7 +12,34 @@
  * to these functions. Plaintext secrets are never stored.
  */
 
-import { hashScryptSecret, verifyScryptSecret, timingSafeTextEqual } from './ownerAuthService';
+import crypto from 'crypto';
+
+// ---------------------------------------------------------------------------
+// Inline crypto helpers (avoid importing ownerAuthService to prevent
+// circular dependency issues in Vercel's module bundler)
+// ---------------------------------------------------------------------------
+
+function hashScryptSecret(secret: string, salt?: string): { salt: string; hash: string } {
+  const effectiveSalt = salt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(secret, effectiveSalt, 64).toString('hex');
+  return { salt: effectiveSalt, hash };
+}
+
+function verifyScryptSecret(secret: string, salt: string, expectedHex: string): boolean {
+  try {
+    const derived = crypto.scryptSync(secret, salt, 64);
+    const expected = Buffer.from(expectedHex, 'hex');
+    return derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
+  } catch {
+    return false;
+  }
+}
+
+function timingSafeTextEqual(a: string, b: string): boolean {
+  const digestA = crypto.createHash('sha256').update(a).digest();
+  const digestB = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(digestA, digestB);
+}
 
 // ---------------------------------------------------------------------------
 // Types
