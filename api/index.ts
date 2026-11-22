@@ -795,6 +795,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       sendJson(res, 401, { error: 'Unauthorized: Session expired or invalid. Please sign in again.' });
       return;
     }
+    // On Vercel serverless, the filesystem is ephemeral — credential changes cannot
+    // be persisted to .data-admin-auth.json. The owner must update OWNER_USERNAME
+    // in Vercel's Environment Variables dashboard and redeploy.
+    if (process.env.VERCEL) {
+      sendJson(res, 503, {
+        error: 'Credential changes cannot be saved on Vercel serverless deployments because the filesystem resets on every deploy. To change your username, update the OWNER_USERNAME environment variable in your Vercel project settings and redeploy.',
+        vercelLimitation: true,
+      });
+      return;
+    }
     const body = req.body as Record<string, unknown>;
     const parsed = ChangeUsernameSchema.safeParse(body);
     if (!parsed.success) {
@@ -824,6 +834,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const session = requireAuth(req);
     if (!session) {
       sendJson(res, 401, { error: 'Unauthorized: Session expired or invalid. Please sign in again.' });
+      return;
+    }
+    if (process.env.VERCEL) {
+      sendJson(res, 503, {
+        error: 'Credential changes cannot be saved on Vercel serverless deployments. To change your password, update the OWNER_PASSWORD environment variable in your Vercel project settings and redeploy.',
+        vercelLimitation: true,
+      });
       return;
     }
     const body = req.body as Record<string, unknown>;
@@ -856,6 +873,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const session = requireAuth(req);
     if (!session) {
       sendJson(res, 401, { error: 'Unauthorized: Session expired or invalid. Please sign in again.' });
+      return;
+    }
+    if (process.env.VERCEL) {
+      sendJson(res, 503, {
+        error: 'PIN changes cannot be saved on Vercel serverless deployments. PIN login requires a persistent filesystem which is not available on Vercel. Use username and password login instead.',
+        vercelLimitation: true,
+      });
       return;
     }
     const body = req.body as Record<string, unknown>;

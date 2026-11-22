@@ -111,6 +111,16 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
       }
 
       const data = await res.json().catch(() => ({}));
+
+      // Vercel serverless: credentials must be changed via environment variables
+      if (res.status === 503 && (data as any).vercelLimitation) {
+        setUsernameStatus({
+          type: 'error',
+          text: 'You are running on Vercel. To change your username, update OWNER_USERNAME in your Vercel project → Settings → Environment Variables, then redeploy.',
+        });
+        return;
+      }
+
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update owner username.');
       }
@@ -179,6 +189,16 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
       }
 
       const data = await res.json().catch(() => ({}));
+
+      // Vercel serverless: credentials must be changed via environment variables
+      if (res.status === 503 && (data as any).vercelLimitation) {
+        setPasswordStatus({
+          type: 'error',
+          text: 'You are running on Vercel. To change your password, update OWNER_PASSWORD in your Vercel project → Settings → Environment Variables, then redeploy.',
+        });
+        return;
+      }
+
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update password.');
       }
@@ -241,6 +261,16 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
       }
 
       const data = await res.json().catch(() => ({}));
+
+      // Vercel serverless: PIN cannot be persisted
+      if (res.status === 503 && (data as any).vercelLimitation) {
+        setPinStatus({
+          type: 'error',
+          text: 'You are running on Vercel. PIN login requires a persistent filesystem which Vercel does not provide. Use username and password login instead.',
+        });
+        return;
+      }
+
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update Owner PIN.');
       }
