@@ -16,7 +16,6 @@ export type QuestionValidationResult =
 export function validateQuestionSubmission(input: {
   askerName: string;
   questionText: string;
-  humanVerified: boolean;
 }): QuestionValidationResult {
   const trimmedName = input.askerName.trim();
   const trimmedQuestion = input.questionText.trim();
@@ -39,13 +38,6 @@ export function validateQuestionSubmission(input: {
     return {
       valid: false,
       error: `Your question cannot exceed ${QUESTION_MAX_LENGTH} characters.`,
-    };
-  }
-
-  if (!input.humanVerified) {
-    return {
-      valid: false,
-      error: 'Please tick the "I\'m human" box before submitting.',
     };
   }
 

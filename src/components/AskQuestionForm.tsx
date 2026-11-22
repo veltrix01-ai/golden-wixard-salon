@@ -1,14 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { Send, CheckCircle2, AlertCircle, Shield, HelpCircle } from 'lucide-react';
-import { HumanVerification } from './HumanVerification';
+import { MessageCircle, CheckCircle2, AlertCircle, HelpCircle, ExternalLink } from 'lucide-react';
 import {
   ASKER_NAME_MAX_LENGTH,
   QUESTION_MAX_LENGTH,
   QUESTION_MIN_LENGTH,
   validateQuestionSubmission,
 } from '../validation/questionValidation';
-import { submitCustomerQuestion } from '../services/questionApi';
+import { buildQuestionWhatsAppUrl } from '../config/salonContact';
 
 export const AskQuestionForm: React.FC = () => {
   const { theme } = useTheme();
@@ -16,38 +15,24 @@ export const AskQuestionForm: React.FC = () => {
 
   const [askerName, setAskerName] = useState('');
   const [questionText, setQuestionText] = useState('');
-  const [humanVerified, setHumanVerified] = useState(false);
-  const [honeypotWebsite, setHoneypotWebsite] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isOpening, setIsOpening] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const submittingRef = useRef(false);
+  const [successWhatsAppUrl, setSuccessWhatsAppUrl] = useState<string | null>(null);
 
   const charCount = questionText.length;
   const isTooShort = charCount > 0 && charCount < QUESTION_MIN_LENGTH;
   const isTooLong = charCount > QUESTION_MAX_LENGTH;
 
-  const handleHumanVerificationChange = (checked: boolean) => {
-    setHumanVerified(checked);
-    if (checked && errorMessage) {
-      setErrorMessage(null);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (submittingRef.current || isSubmitting) {
-      return;
-    }
+    if (isOpening) return;
 
     setErrorMessage(null);
-    setSuccessMessage(null);
+    setSuccessWhatsAppUrl(null);
 
     const validation = validateQuestionSubmission({
       askerName,
       questionText,
-      humanVerified,
     });
 
     if (validation.valid === false) {
@@ -55,41 +40,21 @@ export const AskQuestionForm: React.FC = () => {
       return;
     }
 
-    submittingRef.current = true;
-    setIsSubmitting(true);
+    const url = buildQuestionWhatsAppUrl(
+      validation.askerName || '',
+      validation.question
+    );
 
-    try {
-      const result = await submitCustomerQuestion({
-        question: validation.question,
-        asker_name: validation.askerName,
-        human_verified: humanVerified,
-        website: honeypotWebsite,
-      });
+    setIsOpening(true);
+    window.open(url, '_blank');
 
-      if (!result.ok) {
-        setErrorMessage(
-          result.error ||
-            'Unable to save your question right now. Please try again in a moment.'
-        );
-        return;
-      }
+    // Show success state and store URL for the fallback link
+    setSuccessWhatsAppUrl(url);
+    setAskerName('');
+    setQuestionText('');
 
-      setSuccessMessage(
-        result.message ||
-          'Thank you! Your question has been submitted. The salon owner will review and answer it soon.'
-      );
-      setQuestionText('');
-      setAskerName('');
-      setHoneypotWebsite('');
-      setHumanVerified(false);
-    } catch {
-      setErrorMessage(
-        'Network error while submitting your question. Please check your connection and try again.'
-      );
-    } finally {
-      submittingRef.current = false;
-      setIsSubmitting(false);
-    }
+    // Re-enable button after a brief delay to prevent double-click
+    setTimeout(() => setIsOpening(false), 2000);
   };
 
   return (
@@ -109,26 +74,33 @@ export const AskQuestionForm: React.FC = () => {
               Ask Our Stylists
             </h3>
             <p className="text-xs font-light text-[#A5A5A5]">
-              Submit your question without an account. Verified answers are published in our FAQ.
+              Type your question below and send it directly to us on WhatsApp. No login needed.
             </p>
           </div>
 
           {/* Success Notification */}
-          {successMessage && (
+          {successWhatsAppUrl && (
             <div
               role="status"
-              className={`mb-6 p-4 rounded-lg border text-xs sm:text-sm flex items-start gap-3 ${
-                isLight
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                  : 'bg-emerald-950/60 border-emerald-500/50 text-emerald-200'
-              }`}
+              className="mb-6 p-4 rounded-lg border bg-emerald-950/60 border-emerald-500/50 text-emerald-200 text-xs sm:text-sm"
             >
-              <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">{successMessage}</p>
-                <p className="text-xs opacity-80 mt-1">
-                  Once answered by the salon owner, your question and its official advice will appear in Frequently Asked Questions.
-                </p>
+              <div className="flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">WhatsApp has opened with your question.</p>
+                  <p className="opacity-80 mt-1">
+                    Please press <strong>Send</strong> in WhatsApp to deliver your message to the salon.
+                  </p>
+                  <a
+                    href={successWhatsAppUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-3 text-[#C9A45C] underline underline-offset-2 hover:text-[#D6B979] text-xs font-semibold"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Open WhatsApp Again
+                  </a>
+                </div>
               </div>
             </div>
           )}
@@ -137,11 +109,7 @@ export const AskQuestionForm: React.FC = () => {
           {errorMessage && (
             <div
               role="alert"
-              className={`mb-6 p-4 rounded-lg border text-xs flex items-center gap-2.5 ${
-                isLight
-                  ? 'bg-rose-50 border-rose-300 text-rose-800'
-                  : 'bg-rose-950/60 border-rose-500/50 text-rose-200'
-              }`}
+              className="mb-6 p-4 rounded-lg border bg-rose-950/60 border-rose-500/50 text-rose-200 text-xs flex items-center gap-2.5"
             >
               <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
               <span>{errorMessage}</span>
@@ -149,24 +117,10 @@ export const AskQuestionForm: React.FC = () => {
           )}
 
           <form onSubmit={handleSubmit} noValidate className="space-y-5">
-            {/* Honeypot — hidden from humans, traps bots that fill every field */}
-            <div className="sr-only" aria-hidden="true">
-              <label htmlFor="gw-contact-website">Leave this field empty</label>
-              <input
-                id="gw-contact-website"
-                name="website"
-                type="text"
-                tabIndex={-1}
-                autoComplete="off"
-                value={honeypotWebsite}
-                onChange={(e) => setHoneypotWebsite(e.target.value)}
-              />
-            </div>
-
             {/* 1. Customer Name (Optional) */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                Customer Name <span className="opacity-60 text-[10px] font-normal lowercase">(optional)</span>
+                Your Name <span className="opacity-60 text-[10px] font-normal lowercase">(optional)</span>
               </label>
               <input
                 type="text"
@@ -217,34 +171,24 @@ export const AskQuestionForm: React.FC = () => {
               />
             </div>
 
-            {/* 3. Human verification checkbox */}
-            <HumanVerification
-              checked={humanVerified}
-              onChange={handleHumanVerificationChange}
-              disabled={isSubmitting}
-              isLight={isLight}
-            />
-
-            {/* Rate limit advisory */}
-            <div className="flex items-center justify-center gap-1.5 text-[11px] opacity-60 text-center">
-              <Shield className="w-3.5 h-3.5 text-[#C9A45C] shrink-0" />
-              <span>Maximum 5 questions per hour per IP. Submitted questions are stored privately until verified by the salon owner.</span>
-            </div>
-
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isSubmitting}
-              aria-busy={isSubmitting}
+              disabled={isOpening}
+              aria-busy={isOpening}
               className={`w-full py-3.5 px-6 font-bold text-xs sm:text-sm tracking-wider uppercase rounded-lg shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                 isLight
                   ? 'bg-[#A9823D] hover:bg-[#967232] text-white'
                   : 'bg-[#C9A45C] hover:bg-[#D6B979] text-[#0D0D0D]'
               }`}
             >
-              <Send className="w-4 h-4" />
-              <span>{isSubmitting ? 'Submitting Question...' : 'Submit Question'}</span>
+              <MessageCircle className="w-4 h-4" />
+              <span>{isOpening ? 'Opening WhatsApp...' : 'Ask on WhatsApp'}</span>
             </button>
+
+            <p className="text-[10px] text-center opacity-40">
+              Tapping the button opens WhatsApp with your question pre-filled. Press Send inside WhatsApp to deliver it to the salon.
+            </p>
           </form>
         </div>
       </div>

@@ -144,12 +144,14 @@ export function isWeakPin(pin: string): boolean {
 }
 
 export function isOwnerConfigured(envPassword: string): boolean {
-  return Boolean(hasPersistedPassword(persistedOwner) || envPassword);
+  // Also considered configured when only a PIN is set, so PIN-only setups can log in
+  return Boolean(hasPersistedPassword(persistedOwner) || envPassword || isPinConfigured());
 }
 
-export function getAuthMode(envPassword: string): 'claimed' | 'env' | 'unconfigured' {
+export function getAuthMode(envPassword: string): 'claimed' | 'env' | 'pin-only' | 'unconfigured' {
   if (hasPersistedPassword(persistedOwner)) return 'claimed';
   if (envPassword) return 'env';
+  if (isPinConfigured()) return 'pin-only';
   return 'unconfigured';
 }
 

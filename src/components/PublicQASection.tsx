@@ -1,144 +1,124 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { Search, HelpCircle, Calendar, ChevronLeft, ChevronRight, ChevronDown, Sparkles, RefreshCw, AlertCircle, X } from 'lucide-react';
+import { Search, HelpCircle, ChevronDown, Sparkles, MessageCircle, X } from 'lucide-react';
+import { DEFAULT_FAQS, FAQItem, FAQ_CATEGORIES } from '../data/faqData';
+import { buildWhatsAppUrl } from '../config/salonContact';
+import { SALON_INFO } from '../data/salonData';
 
-export interface PublicQuestionItem {
-  id: string;
-  question: string;
-  asker_name?: string | null;
-  answer?: string | null;
-  answered_at?: string | null;
+const FAQ_STORAGE_KEY = 'gw_faqs';
+
+function loadFaqs(): FAQItem[] {
+  try {
+    const stored = localStorage.getItem(FAQ_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as FAQItem[];
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return DEFAULT_FAQS;
 }
 
-interface PublicQAResponse {
-  questions: PublicQuestionItem[];
-  total: number;
-  page: number;
-  totalPages: number;
-  limit: number;
+function updateFaqSchema(items: FAQItem[]) {
+  try {
+    const existing = document.getElementById('faq-json-ld');
+    if (existing) existing.remove();
+    if (items.length === 0) return;
+
+    const faqSchema = {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: items.map((item) => ({
+        '@type': 'Question',
+        name: item.question,
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: item.answer,
+        },
+      })),
+    };
+
+    const script = document.createElement('script');
+    script.id = 'faq-json-ld';
+    script.type = 'application/ld+json';
+    script.text = JSON.stringify(faqSchema);
+    document.head.appendChild(script);
+  } catch {
+    // non-critical
+  }
 }
 
 export const PublicQASection: React.FC = () => {
   const { theme } = useTheme();
   const isLight = theme === 'light';
 
-  const [questions, setQuestions] = useState<PublicQuestionItem[]>([]);
-  const [totalQuestions, setTotalQuestions] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [allFaqs, setAllFaqs] = useState<FAQItem[]>(() => loadFaqs());
+  const [activeCategory, setActiveCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // Debounce search query
+  // Reload from localStorage if another tab updates it
   useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-      setCurrentPage(1);
-    }, 300);
-    return () => clearTimeout(handler);
-  }, [searchQuery]);
-
-  // Fetch answered questions from server
-  const fetchQuestions = async (page: number, query: string) => {
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: '10',
-        q: query,
-      });
-
-      const res = await fetch(`/api/questions?${params.toString()}`);
-      if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`);
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === FAQ_STORAGE_KEY) {
+        setAllFaqs(loadFaqs());
       }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
-      const data: PublicQAResponse = await res.json();
-      setQuestions(data.questions || []);
-      setTotalQuestions(data.total || 0);
-      setTotalPages(data.totalPages || 1);
+  const publishedFaqs = useMemo(
+    () => allFaqs.filter((f) => f.published),
+    [allFaqs]
+  );
 
-      updateFaqSchema(data.questions || []);
-    } catch (err) {
-      console.error('Failed to load published questions:', err);
-      setErrorMessage('Could not load answered questions at this time. Please try refreshing.');
-    } finally {
-      setIsLoading(false);
+  const filteredFaqs = useMemo(() => {
+    let list = publishedFaqs;
+
+    if (activeCategory !== 'All') {
+      list = list.filter((f) => f.category === activeCategory);
     }
-  };
 
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (f) =>
+          f.question.toLowerCase().includes(q) ||
+          f.answer.toLowerCase().includes(q)
+      );
+    }
+
+    return list;
+  }, [publishedFaqs, activeCategory, searchQuery]);
+
+  // Inject JSON-LD schema whenever displayed FAQs change
   useEffect(() => {
-    fetchQuestions(currentPage, debouncedQuery);
-  }, [currentPage, debouncedQuery]);
+    updateFaqSchema(filteredFaqs);
+    return () => {
+      const existing = document.getElementById('faq-json-ld');
+      if (existing) existing.remove();
+    };
+  }, [filteredFaqs]);
 
-  // Dynamic JSON-LD FAQPage Schema
-  const updateFaqSchema = (items: PublicQuestionItem[]) => {
-    try {
-      const existingScript = document.getElementById('faq-json-ld');
-      if (existingScript) existingScript.remove();
-      if (items.length === 0) return;
+  // Open first item by default when results change
+  useEffect(() => {
+    setExpandedId(filteredFaqs.length > 0 ? filteredFaqs[0].id : null);
+  }, [activeCategory, searchQuery]);
 
-      const faqSchema = {
-        '@context': 'https://schema.org',
-        '@type': 'FAQPage',
-        mainEntity: items
-          .filter((item) => item.answer)
-          .map((item) => ({
-            '@type': 'Question',
-            name: item.question,
-            acceptedAnswer: {
-              '@type': 'Answer',
-              text: item.answer || '',
-            },
-          })),
-      };
-
-      const script = document.createElement('script');
-      script.id = 'faq-json-ld';
-      script.type = 'application/ld+json';
-      script.text = JSON.stringify(faqSchema);
-      document.head.appendChild(script);
-    } catch (e) {
-      console.warn('Failed to inject FAQ JSON-LD', e);
-    }
-  };
-
-  const formatDate = (dateString?: string | null) => {
-    if (!dateString) return 'Recently Answered';
-    try {
-      return new Date(dateString).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    } catch {
-      return 'Recently';
-    }
-  };
-
-  // Accordion state
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const toggleAccordion = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+    setExpandedId((prev) => (prev === id ? null : id));
   };
 
-  useEffect(() => {
-    if (questions.length > 0) {
-      setExpandedIds(new Set([questions[0].id]));
-    }
-  }, [questions]);
+  const usedCategories = useMemo(() => {
+    const cats = new Set(publishedFaqs.map((f) => f.category));
+    return FAQ_CATEGORIES.filter((c) => cats.has(c));
+  }, [publishedFaqs]);
+
+  const whatsAppUrl = buildWhatsAppUrl(
+    `Hello Golden Wizard Salon! I have a question I couldn't find in your FAQ.`
+  );
 
   return (
     <section
@@ -146,7 +126,7 @@ export const PublicQASection: React.FC = () => {
       className="py-10 md:py-16 relative border-t border-b border-white/5 bg-[#121212]"
     >
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-        {/* Section Heading: Compact */}
+        {/* Section Heading */}
         <div className="text-center max-w-xl mx-auto mb-6 sm:mb-8">
           <span className="text-[10px] sm:text-xs font-semibold tracking-[0.2em] text-[#C9A45C] uppercase block mb-1">
             Salon Wisdom & FAQ
@@ -155,18 +135,19 @@ export const PublicQASection: React.FC = () => {
             Frequently Asked <span className="gold-gradient-text italic font-normal">Questions</span>
           </h2>
           <p className="text-xs sm:text-sm font-light text-[#A5A5A5]">
-            Verified answers published by salon stylists regarding haircuts, balayage, keratin care, and bookings.
+            Straightforward answers to the questions customers ask most before visiting{' '}
+            {SALON_INFO.shortName}.
           </p>
         </div>
 
-        {/* Live Search Input */}
-        <div className="relative max-w-xl mx-auto mb-10">
-          <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+        {/* Search Input */}
+        <div className="relative max-w-xl mx-auto mb-5">
+          <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search answered questions (e.g. balayage, keratin, facial, haircut)..."
+            placeholder="Search questions (e.g. colour, haircut, pricing, bridal)..."
             className={`w-full pl-10 pr-10 py-3 rounded-lg text-xs sm:text-sm border focus:outline-none transition-colors shadow-sm ${
               isLight
                 ? 'bg-white border-[#E8E1D5] text-[#24211C] placeholder-[#8F887D] focus:border-[#A9823D]'
@@ -176,92 +157,92 @@ export const PublicQASection: React.FC = () => {
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white text-xs cursor-pointer"
-              aria-label="Clear search query"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white cursor-pointer"
+              aria-label="Clear search"
             >
               <X className="w-4 h-4" />
             </button>
           )}
         </div>
 
-        {/* Error Banner */}
-        {errorMessage && (
-          <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-600 dark:text-rose-400 flex items-center justify-between mb-8 max-w-xl mx-auto">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMessage}</span>
-            </div>
+        {/* Category Filter Buttons */}
+        <div className="flex flex-wrap gap-2 justify-center mb-8">
+          <button
+            onClick={() => setActiveCategory('All')}
+            className={`px-3.5 py-1.5 rounded-full text-[11px] font-semibold tracking-wide border transition-all cursor-pointer ${
+              activeCategory === 'All'
+                ? 'bg-[#C9A45C] text-[#0D0D0D] border-[#C9A45C]'
+                : isLight
+                ? 'border-[#E8E1D5] text-[#4A453F] hover:border-[#C9A45C]'
+                : 'border-white/15 text-[#A5A5A5] hover:border-[#C9A45C] hover:text-white'
+            }`}
+          >
+            All
+          </button>
+          {usedCategories.map((cat) => (
             <button
-              onClick={() => fetchQuestions(currentPage, debouncedQuery)}
-              className="underline hover:opacity-80 flex items-center gap-1 cursor-pointer"
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`px-3.5 py-1.5 rounded-full text-[11px] font-semibold tracking-wide border transition-all cursor-pointer ${
+                activeCategory === cat
+                  ? 'bg-[#C9A45C] text-[#0D0D0D] border-[#C9A45C]'
+                  : isLight
+                  ? 'border-[#E8E1D5] text-[#4A453F] hover:border-[#C9A45C]'
+                  : 'border-white/15 text-[#A5A5A5] hover:border-[#C9A45C] hover:text-white'
+              }`}
             >
-              <RefreshCw className="w-3 h-3" />
-              <span>Retry</span>
+              {cat}
             </button>
-          </div>
-        )}
-
-        {/* Loading Skeletons */}
-        {isLoading && (
-          <div className="space-y-4">
-            {[1, 2, 3].map((n) => (
-              <div
-                key={n}
-                className={`p-6 rounded-xl border animate-pulse space-y-3 ${
-                  isLight ? 'bg-white border-[#E8E1D5]' : 'bg-[#181818] border-white/5'
-                }`}
-              >
-                <div className="h-4 bg-black/10 dark:bg-white/10 rounded w-3/4" />
-                <div className="h-3 bg-black/5 dark:bg-white/5 rounded w-1/4" />
-                <div className="h-14 bg-black/5 dark:bg-white/5 rounded w-full mt-2" />
-              </div>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
 
         {/* Empty State */}
-        {!isLoading && !errorMessage && questions.length === 0 && (
+        {filteredFaqs.length === 0 && (
           <div
             className={`text-center py-16 px-6 rounded-xl border max-w-xl mx-auto ${
               isLight ? 'bg-white border-[#E8E1D5]' : 'bg-[#181818] border-[#C9A45C]/25'
             }`}
           >
             <HelpCircle className="w-12 h-12 text-[#C9A45C]/60 mx-auto mb-3" />
-            <h3 className="font-serif-elegant text-xl font-bold mb-2">
-              No Published Answers Yet
+            <h3 className="font-serif-elegant text-xl font-bold mb-2 text-[#F5F1E8]">
+              No matching questions
             </h3>
             <p className={`text-xs sm:text-sm max-w-md mx-auto mb-6 ${
               isLight ? 'text-[#716B61]' : 'text-[#A5A5A5]'
             }`}>
               {searchQuery
-                ? `No published answers match "${searchQuery}". Clear your search query or submit a question below.`
-                : 'Have a styling or treatment query? Ask our stylists and owner below. Every verified answer is published here.'}
+                ? `Nothing matched "${searchQuery}". Try a different word or ask us directly on WhatsApp.`
+                : 'No FAQs are published in this category yet.'}
             </p>
             <a
-              href="#ask-question-form"
+              href={whatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-md ${
-                isLight ? 'bg-[#A9823D] text-white hover:bg-[#967232]' : 'bg-[#C9A45C] text-[#0D0D0D] hover:bg-[#D6B979]'
+                isLight
+                  ? 'bg-[#A9823D] text-white hover:bg-[#967232]'
+                  : 'bg-[#C9A45C] text-[#0D0D0D] hover:bg-[#D6B979]'
               }`}
             >
-              <Sparkles className="w-4 h-4" />
-              <span>Ask a Question</span>
+              <MessageCircle className="w-4 h-4" />
+              <span>Ask on WhatsApp</span>
             </a>
           </div>
         )}
 
-        {/* Questions and Answers Accordion Layout */}
-        {!isLoading && !errorMessage && questions.length > 0 && (
-          <div className="space-y-4">
-            {questions.map((item) => {
-              const isExpanded = expandedIds.has(item.id);
+        {/* FAQ Accordion */}
+        {filteredFaqs.length > 0 && (
+          <div className="space-y-3">
+            {filteredFaqs.map((item) => {
+              const isExpanded = expandedId === item.id;
               return (
                 <div
                   key={item.id}
                   className={`rounded-xl border transition-all duration-200 overflow-hidden ${
                     isLight
                       ? 'bg-white border-[#E8E1D5] shadow-sm'
-                      : 'bg-[#181818] border-[#C9A45C]/25'
-                  } ${isExpanded ? 'border-[#C9A45C]' : ''}`}
+                      : 'bg-[#181818] border-[#C9A45C]/20'
+                  } ${isExpanded ? (isLight ? 'border-[#A9823D]' : 'border-[#C9A45C]/60') : ''}`}
                 >
                   {/* Accordion Header */}
                   <button
@@ -275,23 +256,24 @@ export const PublicQASection: React.FC = () => {
                         Q
                       </div>
                       <div>
-                        <h3 className={`font-serif-elegant text-base sm:text-lg font-bold leading-snug transition-colors ${
-                          isExpanded ? 'text-[#C9A45C]' : isLight ? 'text-[#24211C]' : 'text-[#F5F1E8]'
-                        }`}>
+                        <span
+                          className={`block text-[10px] font-semibold uppercase tracking-widest mb-1 ${
+                            isLight ? 'text-[#A9823D]' : 'text-[#C9A45C]/70'
+                          }`}
+                        >
+                          {item.category}
+                        </span>
+                        <h3
+                          className={`font-serif-elegant text-base sm:text-lg font-bold leading-snug transition-colors ${
+                            isExpanded
+                              ? 'text-[#C9A45C]'
+                              : isLight
+                              ? 'text-[#24211C]'
+                              : 'text-[#F5F1E8]'
+                          }`}
+                        >
                           {item.question}
                         </h3>
-                        <div className="text-[11px] opacity-60 mt-1 flex items-center gap-2">
-                          <span>Asked by {item.asker_name ? item.asker_name : 'Customer'}</span>
-                          {item.answered_at && (
-                            <>
-                              <span>-</span>
-                              <span className="flex items-center gap-1">
-                                <Calendar className="w-3 h-3 text-[#C9A45C]" />
-                                {formatDate(item.answered_at)}
-                              </span>
-                            </>
-                          )}
-                        </div>
                       </div>
                     </div>
 
@@ -306,75 +288,49 @@ export const PublicQASection: React.FC = () => {
                     </div>
                   </button>
 
-                  {/* Accordion Content (Answer) */}
-                  {isExpanded && item.answer && (
+                  {/* Accordion Body */}
+                  {isExpanded && (
                     <div
-                      className={`px-5 pb-6 sm:px-6 sm:pb-6 pt-2 border-t flex items-start gap-3.5 animate-fade-in ${
+                      className={`px-5 pb-6 sm:px-6 sm:pb-6 pt-2 border-t flex items-start gap-3.5 ${
                         isLight ? 'border-[#E8E1D5] bg-[#F9F7F2]' : 'border-white/5 bg-[#141414]'
                       }`}
                     >
-                      <div className="w-7 h-7 rounded-lg bg-[#111111] border border-[#C9A45C] flex items-center justify-center shrink-0 mt-0.5 text-[#C9A45C] shadow-sm font-bold text-xs">
+                      <div className="w-7 h-7 rounded-lg bg-[#111111] border border-[#C9A45C] flex items-center justify-center shrink-0 mt-0.5 text-[#C9A45C] font-bold text-xs">
                         A
                       </div>
                       <div className="flex-1">
-                        <div className="text-[11px] uppercase tracking-wider text-[#C9A45C] font-bold mb-1 flex items-center gap-1">
+                        <div className="text-[11px] uppercase tracking-wider text-[#C9A45C] font-bold mb-2 flex items-center gap-1">
                           <Sparkles className="w-3 h-3" />
-                          <span>Golden Wizard Verified Advice</span>
+                          <span>Golden Wizard Advice</span>
                         </div>
-                        <div className={`text-xs sm:text-sm leading-relaxed font-light ${
-                          isLight ? 'text-[#24211C]' : 'text-[#F5F1E8]'
-                        }`}>
+                        <p
+                          className={`text-xs sm:text-sm leading-relaxed font-light ${
+                            isLight ? 'text-[#24211C]' : 'text-[#F5F1E8]'
+                          }`}
+                        >
                           {item.answer}
-                        </div>
+                        </p>
                       </div>
                     </div>
                   )}
                 </div>
               );
             })}
+          </div>
+        )}
 
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="pt-6 flex items-center justify-between border-t border-black/10 dark:border-white/10 text-xs">
-                <span className="opacity-60">
-                  Showing page <strong className="text-[#C9A45C]">{currentPage}</strong> of{' '}
-                  <strong className="text-[#C9A45C]">{totalPages}</strong> ({totalQuestions} total questions)
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    disabled={currentPage <= 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    className="p-2 rounded-lg border border-black/10 dark:border-white/10 disabled:opacity-30 disabled:cursor-not-allowed hover:border-[#C9A45C] transition-colors cursor-pointer flex items-center gap-1"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Previous</span>
-                  </button>
-                  <button
-                    disabled={currentPage >= totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    className="p-2 rounded-lg border border-black/10 dark:border-white/10 disabled:opacity-30 disabled:cursor-not-allowed hover:border-[#C9A45C] transition-colors cursor-pointer flex items-center gap-1"
-                  >
-                    <span className="hidden sm:inline">Next</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-            {/* Ask Question CTA link below FAQ */}
-            <div className="pt-4 flex items-center justify-center">
-              <a
-                href="#ask-question-form"
-                onClick={(e) => {
-                  e.preventDefault();
-                  const el = document.getElementById('ask-question-form');
-                  if (el) el.scrollIntoView({ behavior: 'smooth' });
-                }}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-[#C9A45C]/35 bg-[#181818] hover:border-[#C9A45C] text-xs font-semibold tracking-wider uppercase text-[#E3C78D] transition-colors"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-[#C9A45C]" />
-                <span>Have a Question? Ask Our Hairstylist</span>
-              </a>
-            </div>
+        {/* Ask on WhatsApp CTA */}
+        {filteredFaqs.length > 0 && (
+          <div className="pt-8 flex items-center justify-center">
+            <a
+              href={whatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-[#C9A45C]/35 bg-[#181818] hover:border-[#C9A45C] text-xs font-semibold tracking-wider uppercase text-[#E3C78D] transition-colors"
+            >
+              <MessageCircle className="w-3.5 h-3.5 text-[#C9A45C]" />
+              <span>Didn't find your answer? Ask us on WhatsApp</span>
+            </a>
           </div>
         )}
       </div>

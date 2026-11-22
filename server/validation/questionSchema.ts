@@ -12,11 +12,6 @@ export const SubmitQuestionSchema = z.object({
     .max(100, { message: 'Name cannot exceed 100 characters.' })
     .optional()
     .nullable(),
-  human_verified: z
-    .boolean({ message: 'Please tick the "I\'m human" box before submitting.' })
-    .refine((val) => val === true, {
-      message: 'Please tick the "I\'m human" box before submitting.',
-    }),
   website: z.string().max(200).optional().nullable(),
 });
 

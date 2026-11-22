@@ -31,10 +31,12 @@ import {
   RefreshCw,
   Scissors,
   Award,
+  BookOpen,
 } from 'lucide-react';
 import { MenuManagerPanel } from '../components/admin/MenuManagerPanel';
 import { CertificateManagerPanel } from '../components/admin/CertificateManagerPanel';
 import { OwnerSecuritySettingsPanel } from '../components/admin/OwnerSecuritySettingsPanel';
+import { FAQManagerPanel } from '../components/admin/FAQManagerPanel';
 
 interface QuestionItem {
   id: string;
@@ -46,7 +48,7 @@ interface QuestionItem {
   answered_at?: string | null;
 }
 
-export type AdminTab = 'overview' | 'menu' | 'certificates' | 'pending' | 'answered' | 'bookings' | 'settings';
+export type AdminTab = 'overview' | 'menu' | 'certificates' | 'pending' | 'answered' | 'bookings' | 'settings' | 'faqs';
 
 export interface BookingItem {
   id: string;
@@ -660,6 +662,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               <div className="flex items-center gap-2.5">
                 <Award className="w-4 h-4 text-[#C9A45C]" />
                 <span>Certificates</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => handleSwitchTab('faqs')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium tracking-wide transition-all cursor-pointer ${
+                activeTab === 'faqs'
+                  ? 'bg-[#C9A45C]/15 text-[#E3C78D] font-semibold border-l-2 border-[#C9A45C]'
+                  : 'text-[#A5A5A5] hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <BookOpen className="w-4 h-4 text-[#C9A45C]" />
+                <span>Manage FAQs</span>
               </div>
             </button>
 
@@ -1674,6 +1690,26 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             onToast={showToast}
             onAuthError={onLogout}
           />
+        )}
+
+        {/* ========================================================== */}
+        {/* TAB: MANAGE FAQs */}
+        {/* ========================================================== */}
+        {activeTab === 'faqs' && (
+          <div className="animate-fade-in">
+            <div className="flex items-center gap-3 pb-6 border-b border-white/10 mb-6">
+              <BookOpen className="w-5 h-5 text-[#C9A45C]" />
+              <div>
+                <h1 className="font-serif-elegant text-2xl font-bold text-[#F5F1E8]">
+                  Manage FAQs
+                </h1>
+                <p className="text-xs text-[#A5A5A5] mt-0.5">
+                  Add, edit, publish or delete FAQ entries. Changes are stored in this browser.
+                </p>
+              </div>
+            </div>
+            <FAQManagerPanel />
+          </div>
         )}
       </main>
 
