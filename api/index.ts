@@ -124,18 +124,27 @@ async function loadOwnerRecord(): Promise<OwnerRecord | null> {
 async function saveOwnerPin(pinSalt: string, pinHash: string): Promise<boolean> {
   if (!hasSupabase()) return false;
   try {
-    // Try PATCH first (update existing row)
-    const patch = await supabaseFetch('/owner_credentials?id=eq.1', {
-      method: 'PATCH',
-      body: { pin_salt: pinSalt, pin_hash: pinHash, updated_at: new Date().toISOString() },
-    });
-    if (patch.ok) return true;
-    // Row doesn't exist — INSERT
-    const insert = await supabaseFetch('/owner_credentials', {
+    // Use Supabase upsert — inserts if id=1 doesn't exist, updates if it does.
+    // The Prefer header tells Supabase to merge on conflict (upsert).
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/owner_credentials`, {
       method: 'POST',
-      body: { id: 1, pin_salt: pinSalt, pin_hash: pinHash, updated_at: new Date().toISOString() },
+      headers: {
+        apikey: SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify({
+        id: 1,
+        pin_salt: pinSalt,
+        pin_hash: pinHash,
+        updated_at: new Date().toISOString(),
+      }),
+      signal: AbortSignal.timeout(8000),
     });
-    return insert.ok;
+    // 200, 201, or 204 all mean success
+    return res.status < 300;
   } catch { return false; }
 }
 
