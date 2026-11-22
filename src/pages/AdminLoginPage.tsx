@@ -40,10 +40,8 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess, 
         setAuthMode(data?.configured === false ? 'setup' : 'login');
         const pinCfg = Boolean(data?.pinConfigured);
         setPinConfigured(pinCfg);
-        // If pin-only mode, default to the PIN login tab so the owner can sign in immediately
-        if (data?.mode === 'pin-only' && pinCfg) {
-          setLoginMethod('pin');
-        }
+        // Always default to PIN tab — this deployment uses PIN-only auth
+        setLoginMethod('pin');
       })
       .catch(() => {
         if (active) setAuthMode('login');
