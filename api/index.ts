@@ -42,14 +42,20 @@ import {
   claimInitialOwner,
   verifyOwnerPasswordLogin,
   verifyOwnerPinLogin,
-  updateOwnerUsername,
-  updateOwnerPassword,
-  updateOwnerPin,
   isValidUsernameFormat,
   checkLoginAllowed,
   recordFailedLogin,
   resetLoginFailures,
 } from '../server/services/ownerAuthService';
+import {
+  loadOwnerFromSupabase,
+  verifyOwnerPasswordFromSupabase,
+  updateOwnerUsernameInSupabase,
+  updateOwnerPasswordInSupabase,
+  updateOwnerPinInSupabase,
+  isPinConfiguredInSupabase,
+  verifyOwnerPinFromSupabase,
+} from '../server/services/ownerCredentialsSupabase';
 import {
   isHoneypotTriggered,
   isQuestionRateLimited,
@@ -484,12 +490,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
 
   // GET /api/admin/auth/status — reports whether owner credentials are configured
   if (method === 'GET' && rawPath === '/admin/auth/status') {
-    const mode = getAuthMode(ENV_OWNER_PASSWORD);
-    sendJson(res, 200, {
-      configured: mode !== 'unconfigured',
-      mode,
-      pinConfigured: isPinConfigured(),
-    });
+    // Check Supabase for a stored record first, then fall back to env vars
+    const supabaseRecord = await loadOwnerFromSupabase();
+    const pinCfg = supabaseRecord?.pin_enabled
+      ? true
+      : isPinConfigured();
+    const configured = supabaseRecord
+      ? true
+      : getAuthMode(ENV_OWNER_PASSWORD) !== 'unconfigured';
+    const mode = supabaseRecord
+      ? 'claimed'
+      : getAuthMode(ENV_OWNER_PASSWORD);
+    sendJson(res, 200, { configured, mode, pinConfigured: pinCfg });
     return;
   }
 
@@ -519,12 +531,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       token,
       username: record.username,
       expiresAt: Date.now() + SESSION_DURATION_MS,
-      pinConfigured: isPinConfigured(),
+      pinConfigured: false,
     });
     return;
   }
 
   // POST /api/admin/login — username + password login
+  // Tries Supabase-stored credentials first, falls back to env vars
   if (method === 'POST' && rawPath === '/admin/login') {
     const clientIp = getRequestIp(req);
     const lockCheck = checkLoginAllowed(clientIp);
@@ -539,10 +552,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       return;
     }
     if (!isOwnerConfigured(ENV_OWNER_PASSWORD)) {
-      sendJson(res, 409, {
-        error: 'Owner Portal setup has not been completed yet. Please create the owner account first.',
-      });
-      return;
+      // Check if Supabase has credentials even when env isn't set
+      const sbRecord = await loadOwnerFromSupabase();
+      if (!sbRecord) {
+        sendJson(res, 409, { error: 'Owner Portal setup has not been completed yet.' });
+        return;
+      }
     }
     const body = req.body as Record<string, unknown>;
     const parseResult = LoginSchema.safeParse(body);
@@ -551,7 +566,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       return;
     }
     const { username, password } = parseResult.data;
-    const verified = verifyOwnerPasswordLogin(username, password, ENV_OWNER_USERNAME, ENV_OWNER_PASSWORD);
+    // Try Supabase-stored credentials first, then env var fallback
+    const verified = await verifyOwnerPasswordFromSupabase(
+      username, password, ENV_OWNER_USERNAME, ENV_OWNER_PASSWORD
+    );
     if (!verified.ok) {
       const failure = recordFailedLogin(clientIp);
       const lockNotice = failure.locked
@@ -564,12 +582,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     }
     resetLoginFailures(clientIp);
     const token = signSession(verified.effectiveUsername);
+    const pinCfg = await isPinConfiguredInSupabase();
     sendJson(res, 200, {
       success: true,
       token,
       username: verified.effectiveUsername,
       expiresAt: Date.now() + SESSION_DURATION_MS,
-      pinConfigured: isPinConfigured(),
+      pinConfigured: pinCfg,
     });
     return;
   }
@@ -607,7 +626,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       sendJson(res, 400, { error: 'Invalid PIN format. Please enter your 6+ digit Owner PIN.' });
       return;
     }
-    const verified = verifyOwnerPinLogin(parseResult.data.pin, ENV_OWNER_USERNAME);
+    // Try Supabase-stored PIN first, then local fallback
+    const verified = await verifyOwnerPinFromSupabase(parseResult.data.pin, ENV_OWNER_USERNAME);
     if (!verified.ok) {
       const failure = recordFailedLogin(clientIp);
       const lockNotice = failure.locked
@@ -1019,21 +1039,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
 
-  // PATCH /api/admin/security/username
+  // PATCH /api/admin/security/username — change owner username (saved to Supabase)
   if (method === 'PATCH' && rawPath === '/admin/security/username') {
     const session = requireAuth(req);
     if (!session) {
       sendJson(res, 401, { error: 'Unauthorized: Session expired or invalid. Please sign in again.' });
-      return;
-    }
-    // On Vercel serverless, the filesystem is ephemeral — credential changes cannot
-    // be persisted to .data-admin-auth.json. The owner must update OWNER_USERNAME
-    // in Vercel's Environment Variables dashboard and redeploy.
-    if (process.env.VERCEL) {
-      sendJson(res, 503, {
-        error: 'Credential changes cannot be saved on Vercel serverless deployments because the filesystem resets on every deploy. To change your username, update the OWNER_USERNAME environment variable in your Vercel project settings and redeploy.',
-        vercelLimitation: true,
-      });
       return;
     }
     const body = req.body as Record<string, unknown>;
@@ -1042,36 +1052,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       sendJson(res, 400, { error: parsed.error.issues[0]?.message || 'Invalid username.' });
       return;
     }
-    try {
-      const { updatedUsername } = updateOwnerUsername(
-        parsed.data.newUsername,
-        ENV_OWNER_USERNAME,
-        ENV_OWNER_PASSWORD
-      );
-      sendJson(res, 200, {
-        success: true,
-        username: updatedUsername,
-        message: 'Owner username updated successfully. You can use the new username on your next sign-in.',
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unable to update owner username.';
-      sendJson(res, 400, { error: msg });
+    // Require current password to authorize username change
+    const currentPassword = (body.currentPassword as string) || '';
+    if (!currentPassword) {
+      sendJson(res, 400, { error: 'Please enter your current password to confirm the username change.' });
+      return;
     }
+    const result = await updateOwnerUsernameInSupabase(
+      parsed.data.newUsername,
+      currentPassword,
+      ENV_OWNER_USERNAME,
+      ENV_OWNER_PASSWORD
+    );
+    if (!result.ok) {
+      sendJson(res, 400, { error: result.error || 'Could not update username.' });
+      return;
+    }
+    sendJson(res, 200, {
+      success: true,
+      username: parsed.data.newUsername,
+      message: 'Username updated successfully. Use your new username on the next login.',
+    });
     return;
   }
 
-  // PATCH /api/admin/security/password
+  // PATCH /api/admin/security/password — change owner password (saved to Supabase)
   if (method === 'PATCH' && rawPath === '/admin/security/password') {
     const session = requireAuth(req);
     if (!session) {
       sendJson(res, 401, { error: 'Unauthorized: Session expired or invalid. Please sign in again.' });
-      return;
-    }
-    if (process.env.VERCEL) {
-      sendJson(res, 503, {
-        error: 'Credential changes cannot be saved on Vercel serverless deployments. To change your password, update the OWNER_PASSWORD environment variable in your Vercel project settings and redeploy.',
-        vercelLimitation: true,
-      });
       return;
     }
     const body = req.body as Record<string, unknown>;
@@ -1080,37 +1089,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       sendJson(res, 400, { error: parsed.error.issues[0]?.message || 'Invalid password input.' });
       return;
     }
-    try {
-      const result = updateOwnerPassword(
-        parsed.data.currentPassword,
-        parsed.data.newPassword,
-        ENV_OWNER_USERNAME,
-        ENV_OWNER_PASSWORD
-      );
-      if (!result.ok) {
-        sendJson(res, 400, { error: result.error || 'Could not update password.' });
-        return;
-      }
-      sendJson(res, 200, { success: true, message: 'Owner password updated securely.' });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unable to update password.';
-      sendJson(res, 400, { error: msg });
+    const result = await updateOwnerPasswordInSupabase(
+      parsed.data.currentPassword,
+      parsed.data.newPassword,
+      ENV_OWNER_USERNAME,
+      ENV_OWNER_PASSWORD
+    );
+    if (!result.ok) {
+      sendJson(res, 400, { error: result.error || 'Could not update password.' });
+      return;
     }
+    sendJson(res, 200, {
+      success: true,
+      message: 'Password updated securely. Your new password is active immediately.',
+    });
     return;
   }
 
-  // PATCH /api/admin/security/pin
+  // PATCH /api/admin/security/pin — change owner PIN (saved to Supabase)
   if (method === 'PATCH' && rawPath === '/admin/security/pin') {
     const session = requireAuth(req);
     if (!session) {
       sendJson(res, 401, { error: 'Unauthorized: Session expired or invalid. Please sign in again.' });
-      return;
-    }
-    if (process.env.VERCEL) {
-      sendJson(res, 503, {
-        error: 'PIN changes cannot be saved on Vercel serverless deployments. PIN login requires a persistent filesystem which is not available on Vercel. Use username and password login instead.',
-        vercelLimitation: true,
-      });
       return;
     }
     const body = req.body as Record<string, unknown>;
@@ -1119,28 +1119,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       sendJson(res, 400, { error: parsed.error.issues[0]?.message || 'Invalid PIN input.' });
       return;
     }
-    try {
-      const result = updateOwnerPin(
-        {
-          currentPin: parsed.data.currentPin,
-          currentPassword: parsed.data.currentPassword,
-          newPin: parsed.data.newPin,
-        },
-        ENV_OWNER_USERNAME,
-        ENV_OWNER_PASSWORD
-      );
-      if (!result.ok) {
-        sendJson(res, 400, { error: result.error || 'Could not update Owner PIN.' });
-        return;
-      }
-      sendJson(res, 200, {
-        success: true,
-        pinConfigured: true,
-        message: 'Owner PIN updated securely. Your previous PIN is now inactive.',
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unable to update Owner PIN.';
-      sendJson(res, 400, { error: msg });
+    const result = await updateOwnerPinInSupabase(
+      {
+        currentPin: parsed.data.currentPin,
+        currentPassword: parsed.data.currentPassword,
+        newPin: parsed.data.newPin,
+      },
+      ENV_OWNER_USERNAME,
+      ENV_OWNER_PASSWORD
+    );
+    if (!result.ok) {
+      sendJson(res, 400, { error: result.error || 'Could not update Owner PIN.' });
+      return;
+    }
+    sendJson(res, 200, {
+      success: true,
+      pinConfigured: true,
+      message: 'Owner PIN updated securely. Your previous PIN is now inactive.',
+    });
+    return;
+  }
     }
     return;
   }

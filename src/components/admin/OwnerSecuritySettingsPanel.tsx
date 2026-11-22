@@ -31,6 +31,7 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
 
   // Username form state
   const [newUsername, setNewUsername] = useState('');
+  const [usernameCurrentPassword, setUsernameCurrentPassword] = useState('');
   const [isSavingUsername, setIsSavingUsername] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -93,6 +94,10 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
       });
       return;
     }
+    if (!usernameCurrentPassword) {
+      setUsernameStatus({ type: 'error', text: 'Please enter your current password to confirm the change.' });
+      return;
+    }
 
     setIsSavingUsername(true);
     try {
@@ -102,7 +107,7 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ newUsername: cleaned }),
+        body: JSON.stringify({ newUsername: cleaned, currentPassword: usernameCurrentPassword }),
       });
 
       if (res.status === 401) {
@@ -111,24 +116,15 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
       }
 
       const data = await res.json().catch(() => ({}));
-
-      // Vercel serverless: credentials must be changed via environment variables
-      if (res.status === 503 && (data as any).vercelLimitation) {
-        setUsernameStatus({
-          type: 'error',
-          text: 'You are running on Vercel. To change your username, update OWNER_USERNAME in your Vercel project → Settings → Environment Variables, then redeploy.',
-        });
-        return;
-      }
-
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update owner username.');
       }
 
       setActiveUsername(data.username || cleaned);
       setNewUsername('');
+      setUsernameCurrentPassword('');
       onUsernameUpdated?.(data.username || cleaned);
-      const msg = data.message || 'Owner username updated successfully.';
+      const msg = data.message || 'Username updated successfully.';
       setUsernameStatus({ type: 'success', text: msg });
       onToast?.(msg);
     } catch (err: any) {
@@ -189,15 +185,6 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
       }
 
       const data = await res.json().catch(() => ({}));
-
-      // Vercel serverless: credentials must be changed via environment variables
-      if (res.status === 503 && (data as any).vercelLimitation) {
-        setPasswordStatus({
-          type: 'error',
-          text: 'You are running on Vercel. To change your password, update OWNER_PASSWORD in your Vercel project → Settings → Environment Variables, then redeploy.',
-        });
-        return;
-      }
 
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update password.');
@@ -261,15 +248,6 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
       }
 
       const data = await res.json().catch(() => ({}));
-
-      // Vercel serverless: PIN cannot be persisted
-      if (res.status === 503 && (data as any).vercelLimitation) {
-        setPinStatus({
-          type: 'error',
-          text: 'You are running on Vercel. PIN login requires a persistent filesystem which Vercel does not provide. Use username and password login instead.',
-        });
-        return;
-      }
 
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update Owner PIN.');
@@ -347,20 +325,30 @@ export const OwnerSecuritySettingsPanel: React.FC<OwnerSecuritySettingsPanelProp
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-          <input
-            type="text"
-            value={newUsername}
-            onChange={(e) => setNewUsername(e.target.value)}
-            placeholder={`Current: ${activeUsername || 'owner'} — enter new username`}
-            minLength={3}
-            maxLength={60}
-            className="flex-1 p-2.5 rounded-lg border bg-[#181818] border-white/15 text-xs text-white focus:border-[#C9A45C] focus:outline-none"
-          />
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              placeholder={`Current: ${activeUsername || 'owner'} — enter new username`}
+              minLength={3}
+              maxLength={60}
+              className="flex-1 p-2.5 rounded-lg border bg-[#181818] border-white/15 text-xs text-white focus:border-[#C9A45C] focus:outline-none"
+            />
+            <input
+              type="password"
+              value={usernameCurrentPassword}
+              onChange={(e) => setUsernameCurrentPassword(e.target.value)}
+              placeholder="Confirm with current password"
+              autoComplete="current-password"
+              className="flex-1 p-2.5 rounded-lg border bg-[#181818] border-white/15 text-xs text-white focus:border-[#C9A45C] focus:outline-none"
+            />
+          </div>
           <button
             type="submit"
-            disabled={isSavingUsername || !newUsername.trim()}
-            className="px-4 py-2.5 bg-[#C9A45C] hover:bg-[#D6B979] text-[#0D0D0D] font-bold text-xs uppercase tracking-wider rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+            disabled={isSavingUsername || !newUsername.trim() || !usernameCurrentPassword}
+            className="self-end px-4 py-2.5 bg-[#C9A45C] hover:bg-[#D6B979] text-[#0D0D0D] font-bold text-xs uppercase tracking-wider rounded-lg transition-colors cursor-pointer disabled:opacity-40"
           >
             {isSavingUsername ? 'Updating...' : 'Update Username'}
           </button>
