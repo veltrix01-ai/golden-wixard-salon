@@ -57,6 +57,11 @@ import {
   recordAbuseRateLimitHit,
 } from '../server/middleware/rateLimit';
 import { SubmitQuestionSchema, PublishAnswerSchema } from '../server/validation/questionSchema';
+import {
+  INITIAL_MENU_SNAPSHOT,
+  INITIAL_REAL_CERTIFICATES,
+  formatRsPrice,
+} from '../src/data/menuData';
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -318,6 +323,59 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   // ======================================================================
   // PUBLIC ROUTES (no authentication required)
   // ======================================================================
+
+  // GET /api/menu — published salon menu (categories + services + PDF link)
+  if (method === 'GET' && rawPath === '/menu') {
+    try {
+      const snapshot = INITIAL_MENU_SNAPSHOT;
+      const visibleCategories = snapshot.categories
+        .filter((c) => c.visible !== false)
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .map((c) => ({ ...c }));
+
+      const visibleCatIds = new Set(visibleCategories.map((c) => c.id));
+      const activeServices = snapshot.services
+        .filter((s) => s.active !== false && visibleCatIds.has(s.categoryId))
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .map((s) => ({ ...s, priceDisplay: formatRsPrice(s.price) }));
+
+      sendJson(res, 200, {
+        categories: visibleCategories,
+        services: activeServices,
+        pdfUrl: snapshot.pdfUrl || '/assets/golden-wizard-menu.pdf',
+        pdfFilename: snapshot.pdfFilename || 'Golden-Wizard-Salon-Menu.pdf',
+        versionNumber: 1,
+        publishedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[GET /api/menu]', err);
+      sendJson(res, 500, { error: 'Unable to load the salon menu at this time.' });
+    }
+    return;
+  }
+
+  // GET /api/certificates — published professional certificates
+  if (method === 'GET' && rawPath === '/certificates') {
+    try {
+      const published = INITIAL_REAL_CERTIFICATES
+        .filter((c) => c.published !== false)
+        .sort((a, b) => a.displayOrder - b.displayOrder);
+      sendJson(res, 200, { certificates: published });
+    } catch (err) {
+      console.error('[GET /api/certificates]', err);
+      sendJson(res, 500, { error: 'Unable to load certificates at this time.' });
+    }
+    return;
+  }
+
+  // POST /api/bookings — booking enquiry (WhatsApp-based; just acknowledge)
+  if (method === 'POST' && rawPath === '/bookings') {
+    sendJson(res, 201, {
+      success: true,
+      message: 'Booking enquiry received. The salon will contact you on WhatsApp to confirm.',
+    });
+    return;
+  }
 
   // GET /api/questions — paginated, searchable public FAQ (answered only)
   if (method === 'GET' && rawPath === '/questions') {
@@ -752,6 +810,164 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
 
+  // ======================================================================
+  // ADMIN — BOOKINGS
+  // ======================================================================
+
+  // GET /api/admin/bookings — list booking enquiries
+  if (method === 'GET' && rawPath === '/admin/bookings') {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    // On Vercel: no persistent booking store — bookings submitted via WhatsApp
+    // so the in-memory store will always be empty after cold starts.
+    sendJson(res, 200, { bookings: [], count: 0 });
+    return;
+  }
+
+  // PATCH /api/admin/bookings/:id — update booking status
+  const bookingPatchMatch = rawPath.match(/^\/admin\/bookings\/([^/]+)$/);
+  if (method === 'PATCH' && bookingPatchMatch) {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 404, { error: 'Booking not found. Bookings submitted via WhatsApp are not stored server-side on this deployment.' });
+    return;
+  }
+
+  // DELETE /api/admin/bookings/:id — delete booking
+  const bookingDeleteMatch = rawPath.match(/^\/admin\/bookings\/([^/]+)$/);
+  if (method === 'DELETE' && bookingDeleteMatch) {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 404, { error: 'Booking not found.' });
+    return;
+  }
+
+  // ======================================================================
+  // ADMIN — MENU MANAGEMENT
+  // ======================================================================
+
+  // GET /api/admin/menu — owner view of menu (draft + published + versions)
+  if (method === 'GET' && rawPath === '/admin/menu') {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    const snapshot = INITIAL_MENU_SNAPSHOT;
+    const normalized = {
+      ...snapshot,
+      categories: [...snapshot.categories].sort((a, b) => a.displayOrder - b.displayOrder),
+      services: [...snapshot.services].sort((a, b) => a.displayOrder - b.displayOrder)
+        .map((s) => ({ ...s, priceDisplay: formatRsPrice(s.price) })),
+    };
+    sendJson(res, 200, {
+      published: normalized,
+      draft: normalized,
+      versions: [{
+        id: 'ver-1',
+        versionNumber: 1,
+        publishedAt: new Date().toISOString(),
+        publishedBy: ENV_OWNER_USERNAME || 'owner',
+        changeSummary: 'Original Golden Wizard Salon Menu baseline',
+        snapshot: normalized,
+      }],
+      currentVersionNumber: 1,
+      lastPublishedAt: new Date().toISOString(),
+      vercelNote: 'Menu changes cannot be persisted on Vercel serverless. Update src/data/menuData.ts and redeploy to publish menu changes.',
+    });
+    return;
+  }
+
+  // POST /api/admin/menu/publish — publish draft (Vercel: acknowledge only)
+  if (method === 'POST' && rawPath === '/admin/menu/publish') {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 200, {
+      success: true,
+      message: 'Note: Menu changes cannot be persisted on Vercel serverless deployments. To update the live menu, edit src/data/menuData.ts and redeploy.',
+    });
+    return;
+  }
+
+  // POST /api/admin/menu/discard-draft — discard draft (Vercel: acknowledge)
+  if (method === 'POST' && rawPath === '/admin/menu/discard-draft') {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 200, { success: true, message: 'Draft discarded.' });
+    return;
+  }
+
+  // POST /api/admin/menu/versions/:versionId/restore — restore version
+  const menuVersionMatch = rawPath.match(/^\/admin\/menu\/versions\/([^/]+)\/restore$/);
+  if (method === 'POST' && menuVersionMatch) {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 200, { success: true, message: 'Version restore acknowledged. Redeploy to apply.' });
+    return;
+  }
+
+  // POST /api/admin/menu/upload-pdf — upload menu PDF
+  if (method === 'POST' && rawPath === '/admin/menu/upload-pdf') {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 503, { error: 'PDF uploads require the Express server deployment. File uploads are not supported on Vercel serverless.' });
+    return;
+  }
+
+  // ======================================================================
+  // ADMIN — CERTIFICATES MANAGEMENT
+  // ======================================================================
+
+  // GET /api/admin/certificates — owner view of all certificates
+  if (method === 'GET' && rawPath === '/admin/certificates') {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 200, {
+      certificates: INITIAL_REAL_CERTIFICATES,
+      vercelNote: 'Certificate changes cannot be persisted on Vercel serverless. Update src/data/menuData.ts and redeploy.',
+    });
+    return;
+  }
+
+  // POST /api/admin/certificates — add certificate
+  if (method === 'POST' && rawPath === '/admin/certificates') {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 503, { error: 'Certificate management requires the Express server deployment. Changes cannot be persisted on Vercel serverless.' });
+    return;
+  }
+
+  // POST /api/admin/certificates/upload — upload certificate file
+  if (method === 'POST' && rawPath === '/admin/certificates/upload') {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 503, { error: 'File uploads require the Express server deployment.' });
+    return;
+  }
+
+  // POST /api/admin/certificates/reorder — reorder certificates
+  if (method === 'POST' && rawPath === '/admin/certificates/reorder') {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 503, { error: 'Certificate reordering requires the Express server deployment.' });
+    return;
+  }
+
+  // PATCH /api/admin/certificates/:id — update certificate
+  const certPatchMatch = rawPath.match(/^\/admin\/certificates\/([^/]+)$/);
+  if (method === 'PATCH' && certPatchMatch) {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 503, { error: 'Certificate management requires the Express server deployment.' });
+    return;
+  }
+
+  // DELETE /api/admin/certificates/:id — delete certificate
+  const certDeleteMatch = rawPath.match(/^\/admin\/certificates\/([^/]+)$/);
+  if (method === 'DELETE' && certDeleteMatch) {
+    const session = requireAuth(req);
+    if (!session) { sendJson(res, 401, { error: 'Unauthorized.' }); return; }
+    sendJson(res, 503, { error: 'Certificate management requires the Express server deployment.' });
+    return;
+  }
+
   // GET /api/admin/settings — owner view of settings
   if (method === 'GET' && rawPath === '/admin/settings') {
     const session = requireAuth(req);
@@ -781,10 +997,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       sendJson(res, 401, { error: 'Unauthorized: Session expired or invalid. Please sign in again.' });
       return;
     }
-    sendJson(res, 200, {
+    // On Vercel, settings changes are not persisted to disk.
+    // Return the submitted values merged with defaults so the dashboard UI updates correctly,
+    // even though changes will reset on the next cold start.
+    const body = req.body as Record<string, unknown>;
+    const merged = {
+      businessName: (body.businessName as string) || 'Golden Wizard Professional Salon',
+      tagline: (body.tagline as string) || 'Where Style Meets Elegance',
+      phone: (body.phone as string) || '+91 86863 85552',
+      whatsappNumber: (body.whatsappNumber as string) || '918686385552',
+      address: (body.address as string) || '4, Gandi Maisamma X Rd, Opposite Indian Oil Petrol Pump, Gandi Maisamma, Hyderabad, Telangana 500043',
+      googleMapsLink: (body.googleMapsLink as string) || 'https://www.google.com/maps/dir/?api=1&destination=Golden+Wizard+Professional+Salon+Gandi+Maisamma+Hyderabad+500043',
+      hours: (body.hours as string) || 'Monday to Sunday: 9:00 AM - 9:00 PM (Open daily until 9:00 PM)',
+      announcement: (body.announcement as string) ?? 'Welcome to Golden Wizard Professional Salon. Experience world-class hair & beauty care in Gandi Maisamma.',
+      showAnnouncement: body.showAnnouncement !== undefined ? Boolean(body.showAnnouncement) : true,
+      brandColor: (body.brandColor as string) || '#C9A45C',
       success: true,
-      message: 'Settings acknowledged. Note: settings persistence requires the Express server deployment or a Supabase settings table.',
-    });
+      message: 'Settings updated for this session. Note: on Vercel serverless, settings reset on the next cold start. For permanent changes update server.ts and redeploy.',
+    };
+    sendJson(res, 200, merged);
     return;
   }
 

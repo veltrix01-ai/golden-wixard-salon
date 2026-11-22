@@ -30,12 +30,20 @@ export function isSupabaseUrlValid(url: string): boolean {
 
 export function hasSupabaseQuestionsConfig(): boolean {
   const { url, anonKey, serviceRoleKey } = getSupabaseEnv();
-  return isSupabaseUrlValid(url) && Boolean(serviceRoleKey || anonKey);
+  if (!isSupabaseUrlValid(url)) return false;
+  const key = serviceRoleKey || anonKey;
+  // Real Supabase keys are JWTs starting with 'eyJ' and are 100+ characters.
+  // Keys starting with 'sb_publishable_' or 'sb_secret_' are placeholder values —
+  // treat them as unconfigured so the system falls back to local JSON storage.
+  if (!key || key.startsWith('sb_') || key.length < 50) return false;
+  return true;
 }
 
 export function hasSupabaseAdminKey(): boolean {
   const { url, serviceRoleKey } = getSupabaseEnv();
-  return isSupabaseUrlValid(url) && Boolean(serviceRoleKey);
+  if (!isSupabaseUrlValid(url)) return false;
+  if (!serviceRoleKey || serviceRoleKey.startsWith('sb_') || serviceRoleKey.length < 50) return false;
+  return true;
 }
 
 export function isUuid(value: string): boolean {

@@ -41,18 +41,50 @@ function MainAppContent() {
     return '/';
   });
 
-  // Hold authenticated admin Bearer session strictly in memory
+  // Admin session token — stored in sessionStorage so it survives page refreshes
+  // within the same browser session tab, but is cleared when the tab is closed.
+  // On mount, we re-validate any stored token with /api/admin/me before trusting it.
   const [adminToken, setAdminToken] = useState<string | null>(null);
   const [adminUsername, setAdminUsername] = useState<string>('');
+  const [authChecked, setAuthChecked] = useState<boolean>(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('gw_admin_token');
-      localStorage.removeItem('gw_admin_username');
-      sessionStorage.removeItem('gw_admin_token');
-      sessionStorage.removeItem('gw_admin_username');
-      sessionStorage.removeItem('gw_admin_authenticated');
+    // On mount: attempt to restore session from sessionStorage
+    // We call /api/admin/me to verify the stored token is still valid.
+    // If the token is expired or invalid, we clear it and show the login page.
+    if (typeof window === 'undefined') { setAuthChecked(true); return; }
+
+    // Remove any old localStorage tokens from previous implementations
+    localStorage.removeItem('gw_admin_token');
+    localStorage.removeItem('gw_admin_username');
+
+    const storedToken = sessionStorage.getItem('gw_admin_token');
+    const storedUsername = sessionStorage.getItem('gw_admin_username');
+
+    if (!storedToken) {
+      setAuthChecked(true);
+      return;
     }
+
+    // Validate the stored token with the server before restoring the session
+    fetch('/api/admin/me', {
+      headers: { Authorization: `Bearer ${storedToken}` },
+    })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.authenticated) {
+          setAdminToken(storedToken);
+          setAdminUsername(data.username || storedUsername || '');
+        } else {
+          sessionStorage.removeItem('gw_admin_token');
+          sessionStorage.removeItem('gw_admin_username');
+        }
+      })
+      .catch(() => {
+        sessionStorage.removeItem('gw_admin_token');
+        sessionStorage.removeItem('gw_admin_username');
+      })
+      .finally(() => setAuthChecked(true));
   }, []);
 
   // Switch between Q&A administration and full salon operations suite
@@ -125,28 +157,32 @@ function MainAppContent() {
     currentPath.startsWith('/admin/') && currentPath !== '/admin/login';
 
   useEffect(() => {
+    // Don't redirect until we've checked sessionStorage for a valid token
+    if (!authChecked) return;
     if (isProtectedAdminPath && !adminToken) {
-      // Unauthenticated users attempting to access protected admin pages must be redirected to /admin/login
       window.history.replaceState(null, '', '/admin/login');
       setCurrentPath('/admin/login');
     }
-  }, [currentPath, adminToken, isProtectedAdminPath]);
+  }, [currentPath, adminToken, isProtectedAdminPath, authChecked]);
 
-  // If already authenticated and user visits /admin/login, smoothly redirect inside effect
+  // If already authenticated and user visits /admin/login, smoothly redirect
   useEffect(() => {
+    if (!authChecked) return;
     if (currentPath === '/admin/login' && adminToken) {
       navigate('/admin');
     }
-  }, [currentPath, adminToken]);
+  }, [currentPath, adminToken, authChecked]);
 
-  // Login handler
+  // Login handler — saves token to sessionStorage so refresh restores the session
   const handleLoginSuccess = (token: string, username: string) => {
+    sessionStorage.setItem('gw_admin_token', token);
+    sessionStorage.setItem('gw_admin_username', username);
     setAdminToken(token);
     setAdminUsername(username);
     navigate('/admin');
   };
 
-  // Logout handler
+  // Logout handler — clears sessionStorage and in-memory token
   const handleLogout = () => {
     const tokenToRevoke = adminToken;
     if (tokenToRevoke) {
@@ -156,11 +192,10 @@ function MainAppContent() {
       }).catch(() => {});
     }
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('gw_admin_token');
-      localStorage.removeItem('gw_admin_username');
       sessionStorage.removeItem('gw_admin_token');
       sessionStorage.removeItem('gw_admin_username');
-      sessionStorage.removeItem('gw_admin_authenticated');
+      localStorage.removeItem('gw_admin_token');
+      localStorage.removeItem('gw_admin_username');
     }
     setAdminToken(null);
     setAdminUsername('');
@@ -225,6 +260,20 @@ function MainAppContent() {
   const openBranchBookingModal = () => {
     setIsBranchBookingModalOpen(true);
   };
+
+  // -------------------------------------------------------------
+  // LOADING: Wait for sessionStorage auth check before rendering admin routes
+  // This prevents a flash to /admin/login when the owner has a valid stored token
+  // -------------------------------------------------------------
+  if (!authChecked && (currentPath === '/admin/login' || isProtectedAdminPath)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0D0D0D]">
+        <div className="text-[#C9A45C] text-sm font-semibold tracking-widest uppercase animate-pulse">
+          Verifying session…
+        </div>
+      </div>
+    );
+  }
 
   // -------------------------------------------------------------
   // ROUTE 1: /admin/login (Owner Login Page)
